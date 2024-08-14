@@ -1,23 +1,19 @@
 import React, {useState} from "react"
 import Sidebar from "./components/Sidebar"
 import Editor from "./components/Editor"
-import { data } from "./data"
 import Split from "react-split"
-import { nanoid } from "nanoid"
 // import {auth,db} from "./firebase.js";
-import {onSnapshot} from 'firebase/firestore'
+import {addDoc, onSnapshot, doc, deleteDoc, setDoc, query, where} from 'firebase/firestore'
 
 import Auth from "./components/Auth";
-import {auth, noteCollection, unloadCallback} from "./firebase.js";
+import {auth, db, noteCollection, unloadCallback} from "./firebase.js";
 
 export default function App() {
-    const [notes, setNotes] = React.useState(
-        () => JSON.parse(localStorage.getItem("notes")) || []
-    )
+    const [notes, setNotes] = React.useState( [])
 
-    const [currentNoteId, setCurrentNoteId] = React.useState(
-        (notes[0] && notes[0].id) || ""
+    const [currentNoteId, setCurrentNoteId] = React.useState( ""
     )
+    const [editorNoteText,setEditorNoteText] = React.useState("")
 
     const [user,setUser] = useState({})
 
@@ -28,57 +24,76 @@ export default function App() {
         return ()=> window.removeEventListener("beforeunload",unloadCallback)
   }, [])
 
-    React.useEffect(() => {
-        localStorage.setItem("notes", JSON.stringify(notes))
+    React.useEffect(()=>{
+        !currentNoteId && setCurrentNoteId(notes[0]?.id);
+    },[notes])
 
-        const unsubscribe = onSnapshot(noteCollection,function(snapshot){
+    React.useEffect(()=>{
+        setEditorNoteText(currentNote?.body !== editorNoteText ?
+                                currentNote?.body : editorNoteText);
+
+    },[currentNoteId])
+
+
+    React.useEffect(() => {
+        console.log("Debounced updated called")
+        const timeoutId = setTimeout(async () => {
+            await updateNote(editorNoteText)
+
+            console.log("Updated Firestore")
+        }, 500)
+        return () => clearTimeout(timeoutId)
+    }, [editorNoteText])
+
+    React.useEffect(() => {
+
+        const q = auth.currentUser ?
+                                        query(noteCollection, where("owner", "==", auth.currentUser.uid))
+                                    : query(noteCollection)
+
+        const unsubscribe = onSnapshot(q,function(snapshot){
             // sync our local notes array
             console.log("Things are changing")
 
             const notesArr = snapshot.docs.map(
                 doc => ({...doc.data(),id:doc.id})
             )
+
+            setNotes(notesArr)
         })
 
         return unsubscribe;
 
-    }, [notes])
+    }, [])
 
-    function createNewNote() {
+    async function createNewNote() {
         const newNote = {
-            id: nanoid(),
-            body: "# Type your markdown note's title here"
+            body: "# Type your markdown note's title here",
+            owner: auth.currentUser.uid,
+            createdOn: Date.now(),
+            updatedOn: Date.now()
         }
-        setNotes(prevNotes => [newNote, ...prevNotes])
-        setCurrentNoteId(newNote.id)
+
+        const newNoteRef = await addDoc(noteCollection,newNote)
+
+        setCurrentNoteId(newNoteRef.id)
     }
 
-    function updateNote(text) {
-        setNotes(oldNotes => {
-            const newArray = []
-            for (let i = 0; i < oldNotes.length; i++) {
-                const oldNote = oldNotes[i]
-                if (oldNote.id === currentNoteId) {
-                    // Put the most recently-modified note at the top
-                    newArray.unshift({ ...oldNote, body: text })
-                } else {
-                    newArray.push(oldNote)
-                }
-            }
-            return newArray
-        })
+    async function updateNote(text) {
+       const docRef = doc(db,noteCollection.path,currentNoteId)
+        await setDoc(docRef,{body:text,updatedOn:Date.now()}, {merge:true})
     }
 
-    function deleteNote(event, noteId) {
+    async function deleteNote(event, noteId) {
         event.stopPropagation()
-        setNotes(oldNotes => oldNotes.filter(note => note.id !== noteId))
+        // alert(noteId);noteId
+        const docRef = doc(db,noteCollection.path,noteId)
+        deleteDoc(docRef).then(r=>console.log(r))
+            .catch(err=>console.log(err))
     }
 
-    function findCurrentNote() {
-        return notes.find(note => {
-            return note.id === currentNoteId
-        }) || notes[0]
-    }
+    const currentNote = notes.find(note=>note.id===currentNoteId) || notes[0]
+    console.log(editorNoteText)
 
     function handleAuthChange()
     {
@@ -98,7 +113,7 @@ export default function App() {
                     >
                         <Sidebar
                             notes={notes}
-                            currentNote={findCurrentNote()}
+                            currentNote={currentNote}
                             setCurrentNoteId={setCurrentNoteId}
                             newNote={createNewNote}
                             deleteNote={deleteNote}
@@ -107,8 +122,8 @@ export default function App() {
                             currentNoteId &&
                             notes.length > 0 &&
                             <Editor
-                                currentNote={findCurrentNote()}
-                                updateNote={updateNote}
+                                currentNoteText={editorNoteText}
+                                updateNote={setEditorNoteText}
                             />
                         }
                     </Split>

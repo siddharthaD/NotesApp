@@ -1,7 +1,7 @@
 import React from "react"
 
 export default function Sidebar(props) {
-    const noteElements = props.notes.map((note, index) => (
+    const noteElements = props.notes.sort((a,b)=>(a.updatedOn > b.updatedOn)? -1 : 1 ).map((note, index) => (
         <div key={note.id}>
             <div
                 

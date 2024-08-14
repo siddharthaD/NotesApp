@@ -3,7 +3,7 @@ import Sidebar from "./components/Sidebar"
 import Editor from "./components/Editor"
 import Split from "react-split"
 // import {auth,db} from "./firebase.js";
-import {addDoc, onSnapshot,doc,deleteDoc,setDoc} from 'firebase/firestore'
+import {addDoc, onSnapshot, doc, deleteDoc, setDoc, query, where} from 'firebase/firestore'
 
 import Auth from "./components/Auth";
 import {auth, db, noteCollection, unloadCallback} from "./firebase.js";
@@ -35,9 +35,23 @@ export default function App() {
     },[currentNoteId])
 
 
+    React.useEffect(() => {
+        console.log("Debounced updated called")
+        const timeoutId = setTimeout(async () => {
+            await updateNote(editorNoteText)
+
+            console.log("Updated Firestore")
+        }, 500)
+        return () => clearTimeout(timeoutId)
+    }, [editorNoteText])
 
     React.useEffect(() => {
-        const unsubscribe = onSnapshot(noteCollection,function(snapshot){
+
+        const q = auth.currentUser ?
+                                        query(noteCollection, where("owner", "==", auth.currentUser.uid))
+                                    : query(noteCollection)
+
+        const unsubscribe = onSnapshot(q,function(snapshot){
             // sync our local notes array
             console.log("Things are changing")
 
@@ -55,6 +69,7 @@ export default function App() {
     async function createNewNote() {
         const newNote = {
             body: "# Type your markdown note's title here",
+            owner: auth.currentUser.uid,
             createdOn: Date.now(),
             updatedOn: Date.now()
         }
